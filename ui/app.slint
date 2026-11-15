@@ -1,0 +1,358 @@
+// VibePrint's main window. Layout and drawing only; every decision is made in Rust.
+
+import { Theme, Type, Button, ButtonKind, TipLayer, Toast, ToastKind } from "@vibeware";
+import { AboutDialog, CheckRow } from "brand.slint";
+import { TopBar } from "topbar.slint";
+import { PrinterList, StateDot } from "printers.slint";
+import { DetailPanel } from "detail.slint";
+import { FindPanel } from "find.slint";
+import { ConfirmDialog, AddDialog, JournalDialog } from "dialogs.slint";
+import { AppIcons } from "app-icons.slint";
+import { PrinterRow, DetailPair, DetailInfo, JobRow, FixButton, FoundRow, ConfirmInfo, JournalRow, AddInfo } from "types.slint";
+
+export { PrinterRow, DetailPair, DetailInfo, JobRow, FixButton, FoundRow, ConfirmInfo, JournalRow, AddInfo }
+
+export struct ToastItem {
+    id: int,
+    text: string,
+    kind: ToastKind,
+    action: string,
+}
+
+export component AppWindow inherits Window {
+    // A constant title: never a name from outside.
+    title: "VibePrint";
+    icon: @image-url("../assets/app-128.png");
+    preferred-width: 1180px;
+    preferred-height: 740px;
+    min-width: 960px;
+    min-height: 600px;
+    // The rows' colour: it covers most of the window (one fill per frame, VIBEWARE.md). The
+    // bars and panels draw their own.
+    background: Theme.surface;
+    default-font-family: Type.ui;
+    default-font-size: Type.small;
+    default-font-weight: Type.regular;
+
+    in property <string> version;
+    in property <string> status-left;
+    in property <string> status-right;
+    in property <[ToastItem]> toasts;
+    in-out property <bool> about-open;
+    in-out property <bool> confirm-open;
+    in-out property <bool> add-open;
+    in-out property <bool> journal-open;
+    property <bool> dialog-open: root.about-open || root.confirm-open || root.add-open || root.journal-open;
+
+    // ---- the bar ----
+    in property <bool> refreshing;
+    in property <bool> finding;
+    in property <bool> fix-running;
+    in property <bool> portable;
+    in property <string> portable-tip;
+    in property <string> spooler-line;
+    in property <string> spooler-fix;
+
+    // ---- the list, the detail, Find ----
+    in property <[PrinterRow]> rows;
+    in property <string> rows-empty;
+    in property <length> scroll-top: -1px;
+    in property <int> scroll-seq;
+    in property <DetailInfo> detail;
+    in property <[DetailPair]> detail-pairs;
+    in property <[JobRow]> jobs;
+    in property <[FixButton]> fixes-a;
+    in property <[FixButton]> fixes-b;
+    in property <bool> find-open;
+    in property <string> find-status;
+    in property <[FoundRow]> found;
+    in property <[FixButton]> found-actions;
+    in property <string> found-note;
+
+    // ---- the dialogs ----
+    in property <ConfirmInfo> confirm;
+    in-out property <string> add-ip;
+    in-out property <string> add-name;
+    in property <AddInfo> add-info;
+    in property <[JournalRow]> journal-rows;
+    in property <string> journal-note;
+    in property <bool> journal-can-undo;
+    // About's version line and its install check (the controller's words and states).
+    in property <string> about-line;
+    in property <[CheckRow]> check-rows;
+    in property <bool> checking;
+    in property <bool> checked;
+
+    callback toggle-theme();
+    // About: "Check this install" pressed (the controller runs it on a worker, once at a time),
+    // and the website link.
+    callback check-install();
+    callback open-site();
+    callback toast-action(int);
+    callback toast-dismissed(int);
+    // A dialog closed: toasts behind it get their full time again (a toast in sight but out of
+    // reach must not expire).
+    callback dialogs-closed();
+    callback copy-text(string) -> bool;
+    callback refresh();
+    callback find();
+    callback find-stop();
+    callback find-close();
+    callback add-by-ip();
+    callback restart-spooler();
+    callback journal();
+    callback copy-report() -> bool;
+    callback row-clicked(int);
+    callback fix-clicked(int);
+    callback found-clicked(int);
+    callback found-action(int);
+    callback confirm-ok();
+    callback confirm-cancel();
+    callback add-ip-edited(string);
+    callback add-name-edited(string);
+    callback add-ip-escaped() -> bool;
+    callback add-name-escaped() -> bool;
+    callback add-driver-changed(int);
+    callback add-settings();
+    callback add-confirm();
+    callback add-cancel();
+    callback journal-clicked(int);
+    callback journal-undo();
+    callback journal-close();
+    // Up/Down/Home/End in Find's results and the journal's list: the row picked, or -1.
+    callback found-key(string) -> int;
+    callback journal-key(string) -> int;
+    // A key nothing focused took: Up/Down/Home/End, F5, Ctrl+C. True when Rust used it.
+    callback key(string, bool, bool) -> bool;
+
+    public function focus-list() {
+        list.focus-list();
+    }
+
+    changed dialog-open => {
+        if (!self.dialog-open) {
+            root.dialogs-closed();
+        }
+    }
+
+    keys := FocusScope {
+        focus-on-click: false;
+        // The window's key catcher is no Tab stop: a Tab past a dialog's last button must not land
+        // here, where Escape would not reach the dialog (About v2 has three stops; 2026-11-04).
+        focus-on-tab-navigation: false;
+        key-pressed(e) => {
+            if (!root.dialog-open && root.key(e.text, e.modifiers.control, e.modifiers.shift)) {
+                return accept;
+            }
+            reject
+        }
+
+        VerticalLayout {
+            TopBar {
+                refreshing: root.refreshing;
+                finding: root.finding;
+                fix-running: root.fix-running;
+                portable: root.portable;
+                portable-tip: root.portable-tip;
+                inert: root.dialog-open;
+                refresh => { root.refresh(); }
+                find => { root.find(); }
+                add-by-ip => { root.add-by-ip(); }
+                restart-spooler => { root.restart-spooler(); }
+                journal => { root.journal(); }
+                copy-report => { root.copy-report() }
+                toggle-theme => { root.toggle-theme(); }
+                about => { root.about-open = true; }
+            }
+
+            // The spooler, when it is not running: the first verdict for every printer.
+            if root.spooler-line != "": Rectangle {
+                background: Theme.bg;
+                min-height: sl.preferred-height;
+                accessible-role: AccessibleRole.text;
+                accessible-label: "Print Spooler";
+                accessible-value: root.spooler-line;
+                sl := HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    spacing: 12px;
+                    VerticalLayout {
+                        alignment: center;
+                        StateDot { state: 4; size: 10px; }
+                    }
+                    Text {
+                        text: root.spooler-line;
+                        font-size: Type.body;
+                        font-weight: Type.strong;
+                        color: Theme.danger-text;
+                        wrap: word-wrap;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                        min-height: self.preferred-height;
+                        accessible-role: none;
+                    }
+                    if root.spooler-fix != "": VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: root.spooler-fix;
+                            icon: AppIcons.shield;
+                            kind: ButtonKind.primary;
+                            enabled: !root.fix-running;
+                            inert: root.dialog-open;
+                            clicked => { root.restart-spooler(); }
+                        }
+                    }
+                }
+                Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+            }
+
+            HorizontalLayout {
+                vertical-stretch: 1;
+                list := PrinterList {
+                    horizontal-stretch: 4;
+                    min-width: 380px;
+                    rows: root.rows;
+                    empty-text: root.rows-empty;
+                    scroll-top: root.scroll-top;
+                    scroll-seq: root.scroll-seq;
+                    inert: root.dialog-open;
+                    row-clicked(i) => { root.row-clicked(i); }
+                    key(t, c, s) => { root.key(t, c, s) }
+                }
+                Rectangle {
+                    width: 1px;
+                    background: Theme.line;
+                }
+                if !root.find-open: DetailPanel {
+                    horizontal-stretch: 5;
+                    min-width: 460px;
+                    d: root.detail;
+                    pairs: root.detail-pairs;
+                    jobs: root.jobs;
+                    fixes-a: root.fixes-a;
+                    fixes-b: root.fixes-b;
+                    inert: root.dialog-open;
+                    fix(i) => { root.fix-clicked(i); }
+                }
+                if root.find-open: FindPanel {
+                    horizontal-stretch: 5;
+                    min-width: 460px;
+                    status: root.find-status;
+                    finding: root.finding;
+                    found: root.found;
+                    actions: root.found-actions;
+                    note: root.found-note;
+                    inert: root.dialog-open;
+                    stop => { root.find-stop(); }
+                    close => { root.find-close(); }
+                    again => { root.find(); }
+                    clicked(i) => { root.found-clicked(i); }
+                    action(i) => { root.found-action(i); }
+                    key(t) => { root.found-key(t) }
+                }
+            }
+
+            // ---- the status line ----
+            Rectangle {
+                height: 26px;
+                background: Theme.bg;
+                Rectangle { y: 0; height: 1px; background: Theme.line; }
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 12px;
+                    Text {
+                        text: root.status-left;
+                        font-family: Type.mono;
+                        color: Theme.ink-3;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    Text {
+                        text: root.status-right;
+                        font-family: Type.mono;
+                        color: Theme.ink-3;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+
+    // Toasts, bottom right, newest at the bottom, above the status line. In sight behind a
+    // dialog (under its scrim), out of the Tab order there.
+    VerticalLayout {
+        x: root.width - self.width - 14px;
+        y: root.height - self.height - 40px;
+        width: 380px;
+        height: self.preferred-height;
+        spacing: 8px;
+        for t in root.toasts: Toast {
+            text: t.text;
+            kind: t.kind;
+            action: t.action;
+            inert: root.dialog-open;
+            action-clicked => { root.toast-action(t.id); }
+            dismissed => { root.toast-dismissed(t.id); }
+            copy => { root.copy-text(t.text) }
+        }
+    }
+
+    if root.confirm-open: ConfirmDialog {
+        width: root.width;
+        height: root.height;
+        c: root.confirm;
+        confirmed => { root.confirm-ok(); }
+        cancelled => { root.confirm-cancel(); }
+    }
+
+    if root.add-open && !root.confirm-open: AddDialog {
+        width: root.width;
+        height: root.height;
+        ip <=> root.add-ip;
+        name <=> root.add-name;
+        a: root.add-info;
+        ip-edited(t) => { root.add-ip-edited(t); }
+        name-edited(t) => { root.add-name-edited(t); }
+        ip-escaped => { root.add-ip-escaped() }
+        name-escaped => { root.add-name-escaped() }
+        driver-changed(i) => { root.add-driver-changed(i); }
+        settings => { root.add-settings(); }
+        confirmed => { root.add-confirm(); }
+        cancelled => { root.add-cancel(); }
+    }
+
+    if root.journal-open: JournalDialog {
+        width: root.width;
+        height: root.height;
+        rows: root.journal-rows;
+        note: root.journal-note;
+        can-undo: root.journal-can-undo;
+        clicked(i) => { root.journal-clicked(i); }
+        key(t) => { root.journal-key(t) }
+        undo => { root.journal-undo(); }
+        closed => { root.journal-close(); }
+    }
+
+    if root.about-open: AboutDialog {
+        width: root.width;
+        height: root.height;
+        line: root.about-line;
+        rows: root.check-rows;
+        checking: root.checking;
+        checked: root.checked;
+        check => { root.check-install(); }
+        open-site => { root.open-site(); }
+        closed => { root.about-open = false; }
+    }
+
+    TipLayer {
+        width: root.width;
+        height: root.height;
+    }
+}

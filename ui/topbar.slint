@@ -1,0 +1,183 @@
+// The top bar: Refresh, Find, Add by IP…, Restart spooler (shield: one admin prompt), Journal,
+// the Portable chip, Copy report, theme and About. It draws; Rust decides.
+
+import { Theme, Type, Icons, Button, ButtonKind, IconButton, Chamfer, TipArea } from "@vibeware";
+import { Brand } from "brand.slint";
+import { AppIcons } from "app-icons.slint";
+
+// "Portable": the copy runs from a stick, settings beside the exe.
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <string> tooltip;
+    height: 22px;
+    width: lay.preferred-width;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-description: root.tooltip;
+    Chamfer {
+        width: 100%;
+        height: 100%;
+        stroke: Theme.line-strong;
+        cut: 5px;
+    }
+    lay := HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        Text {
+            text: root.text;
+            font-family: Type.mono;
+            font-size: Type.small;
+            color: Theme.ink-2;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+    }
+    TipArea { tooltip: root.tooltip; }
+}
+
+export component TopBar inherits Rectangle {
+    in property <bool> refreshing;
+    in property <bool> finding;
+    in property <bool> fix-running;
+    in property <bool> portable;
+    in property <string> portable-tip;
+    in property <bool> inert;
+
+    callback refresh();
+    callback find();
+    callback add-by-ip();
+    callback restart-spooler();
+    callback journal();
+    callback copy-report() -> bool;
+    callback toggle-theme();
+    callback about();
+
+    height: 48px;
+    background: Theme.bg;
+
+    // Copy's moment of "copied" (the check), as VibeWare's CopyButton shows it.
+    property <bool> copied;
+    settle := Timer {
+        interval: 1500ms;
+        running: false;
+        triggered => {
+            root.copied = false;
+            self.running = false;
+        }
+    }
+
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 10px;
+        spacing: 8px;
+        Brand { horizontal-stretch: 0; }
+        Rectangle { width: 6px; }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: Icons.refresh;
+                label: "Refresh";
+                tooltip: "Read the printers again and ask them (F5)";
+                enabled: !root.refreshing;
+                inert: root.inert;
+                clicked => { root.refresh(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                text: root.finding ? "Finding…" : "Find";
+                icon: Icons.search;
+                kind: ButtonKind.primary;
+                tooltip: "Find printers on the LAN (mDNS and a port search of this subnet)";
+                inert: root.inert;
+                clicked => { root.find(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                text: "Add by IP…";
+                icon: AppIcons.add;
+                tooltip: "Add a printer by its IPv4 address (one administrator prompt)";
+                enabled: !root.fix-running;
+                inert: root.inert;
+                clicked => { root.add-by-ip(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                text: "Restart spooler";
+                icon: AppIcons.shield;
+                tooltip: "Stop and start the Print Spooler service (one administrator prompt)";
+                enabled: !root.fix-running;
+                inert: root.inert;
+                clicked => { root.restart-spooler(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            Button {
+                text: "Journal";
+                icon: AppIcons.journal;
+                kind: ButtonKind.ghost;
+                tooltip: "Every fix made on this PC, and Undo for the ones that can be put back";
+                inert: root.inert;
+                clicked => { root.journal(); }
+            }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        if root.portable: VerticalLayout {
+            alignment: center;
+            Chip { text: "Portable"; tooltip: root.portable-tip; }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: root.copied ? Icons.check : Icons.copy;
+                label: root.copied ? "Copied" : "Copy report";
+                tooltip: "Copy the report as text (Ctrl+C)";
+                inert: root.inert;
+                enter-presses: false;
+                clicked => {
+                    if (root.copy-report()) {
+                        root.copied = true;
+                        settle.running = true;
+                        settle.restart();
+                    }
+                }
+            }
+        }
+        Rectangle {
+            width: 1px;
+            background: Theme.line;
+        }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: Icons.theme;
+                label: "Theme";
+                tooltip: Theme.dark ? "Light theme" : "Dark theme";
+                inert: root.inert;
+                clicked => { root.toggle-theme(); }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            IconButton {
+                icon: Icons.info;
+                label: "About";
+                tooltip: "About VibePrint";
+                inert: root.inert;
+                clicked => { root.about(); }
+            }
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+}

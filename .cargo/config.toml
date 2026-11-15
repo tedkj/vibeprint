@@ -1,0 +1,4 @@
+# The C runtime linked in (LINK-1): the exe imports no vcruntime140.dll, so the elevated helper
+# has one DLL less that Windows would look for next to the exe. tests/pe.rs checks the result.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

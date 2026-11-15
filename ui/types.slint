@@ -1,0 +1,97 @@
+// The rows and records Rust hands the window. Every string is formatted in Rust; the .slint
+// files only lay them out.
+// State codes (the family's): 0 checking, 1 ok, 2 quiet, 3 warning, 4 broken, 5 unknown.
+
+// One row of the printer list: a group's title (`header`) or a printer.
+export struct PrinterRow {
+    id: int,             // the printer's index in Rust's list (-1 for a group title)
+    header: bool,
+    name: string,        // "Kontor", or "Network · 3"
+    tag: string,         // "default", ""
+    port: string,        // "TCP/IP · 192.168.1.50"
+    line: string,        // the real-status line
+    state: int,
+    selected: bool,
+    a11y: string,        // what a screen reader says about the row
+}
+
+// One row of the detail panel: a section title (`section`), or a key and its value.
+export struct DetailPair {
+    key: string,
+    value: string,
+    mono: bool,
+    section: bool,
+}
+
+export struct DetailInfo {
+    title: string,
+    state: int,
+    state-word: string,
+    line: string,
+    notes: [string],
+    queue-title: string,
+}
+
+// One job in the queue.
+export struct JobRow {
+    id: int,
+    document: string,
+    detail: string,      // "Ola · 2 of 3 pages · 2.0 GB · 22.10.2026 15:48"
+    status: string,
+    state: int,
+    a11y: string,
+}
+
+// A fix (or a found device's action) as a button.
+export struct FixButton {
+    id: int,
+    text: string,
+    admin: bool,         // one administrator prompt: the shield
+    primary: bool,
+    enabled: bool,
+}
+
+// A device Find found.
+export struct FoundRow {
+    id: int,
+    title: string,
+    sub: string,         // model · MAC (maker) · what answered
+    ip: string,
+    verdict: string,     // "This is 'Kontor'." / "Maybe ..." / "Not installed on this PC."
+    state: int,
+    selected: bool,
+    a11y: string,
+}
+
+// The confirm dialog: what a fix will do.
+export struct ConfirmInfo {
+    title: string,
+    steps: [string],
+    admin: bool,
+    button: string,
+    note: string,
+}
+
+// One journal entry.
+export struct JournalRow {
+    id: int,
+    when: string,
+    what: string,
+    printer: string,
+    state: string,
+    state-code: int,
+    selected: bool,
+    a11y: string,
+}
+
+// The Add by IP dialog's state.
+export struct AddInfo {
+    check: string,       // what the address answered
+    drivers: [string],
+    driver: int,
+    no-driver: bool,     // nothing fits: Settings can fetch one
+    problem: string,     // why Add is not offered yet ("" when ready)
+    ready: bool,
+    busy: bool,
+    protocol: string,    // "RAW 9100, SNMP check on"
+}

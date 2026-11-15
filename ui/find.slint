@@ -1,0 +1,235 @@
+// Find's results panel (in place of the detail while open): what is being searched, the
+// devices found with how each relates to the installed printers, and the actions for the
+// selected one below the list (no buttons in scrolling rows).
+
+import { ListView } from "std-widgets.slint";
+import { Theme, Type, Icons, Button, ButtonKind, IconButton } from "@vibeware";
+import { FoundRow, FixButton } from "types.slint";
+import { StateDot } from "printers.slint";
+import { AppIcons } from "app-icons.slint";
+
+component FoundLine inherits Rectangle {
+    in property <FoundRow> f;
+    callback clicked();
+    height: 66px;
+    accessible-role: list-item;
+    accessible-label: root.f.title;
+    accessible-description: root.f.a11y;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.f.selected;
+    accessible-action-default => { root.clicked(); }
+    background: root.f.selected ? Theme.accent-soft : ta.has-hover ? Theme.surface-2 : transparent;
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    if root.f.selected: Rectangle {
+        x: 0;
+        width: 2px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.line;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            StateDot { state: root.f.state; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.f.title;
+                    font-size: Type.body;
+                    font-weight: Type.strong;
+                    color: Theme.ink;
+                    overflow: elide;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    accessible-role: none;
+                }
+                Text {
+                    text: root.f.ip;
+                    font-family: Type.mono;
+                    font-size: Type.small;
+                    color: Theme.ink-2;
+                    overflow: elide;
+                    min-width: 0px;
+                    max-width: 260px;
+                    accessible-role: none;
+                }
+            }
+            Text {
+                text: root.f.sub;
+                font-family: Type.mono;
+                font-size: Type.small;
+                color: Theme.ink-3;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+            Text {
+                text: root.f.verdict;
+                font-size: Type.small;
+                color: root.f.state == 3 ? Theme.warn-text : root.f.state == 1 ? Theme.ok-text : Theme.ink-2;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+        }
+    }
+}
+
+export component FindPanel inherits Rectangle {
+    in property <string> status;
+    in property <bool> finding;
+    in property <[FoundRow]> found;
+    in property <[FixButton]> actions;
+    // The selected device's verdict in full (its row cuts it).
+    in property <string> note;
+    in property <bool> inert;
+    callback stop();
+    callback close();
+    callback again();
+    callback clicked(int);
+    callback action(int);
+    // Up/Down/Home/End on the results (X15A11Y-2): the row Rust picked, or -1 for another key.
+    callback key(string) -> int;
+
+    accessible-role: groupbox;
+    accessible-label: "Find";
+
+    VerticalLayout {
+        HorizontalLayout {
+            padding-left: 18px;
+            padding-right: 10px;
+            padding-top: 10px;
+            padding-bottom: 8px;
+            spacing: 8px;
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2px;
+                Text {
+                    text: "Find printers on the LAN";
+                    font-size: Type.body;
+                    font-weight: Type.strong;
+                    color: Theme.ink;
+                }
+                Text {
+                    text: root.status;
+                    font-size: Type.small;
+                    color: Theme.ink-3;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                Button {
+                    text: root.finding ? "Stop" : "Search again";
+                    icon: root.finding ? Icons.stop : Icons.refresh;
+                    kind: ButtonKind.secondary;
+                    inert: root.inert;
+                    clicked => {
+                        if (root.finding) {
+                            root.stop();
+                        } else {
+                            root.again();
+                        }
+                    }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    icon: Icons.x;
+                    label: "Close Find";
+                    tooltip: "Back to the printer's details";
+                    inert: root.inert;
+                    clicked => { root.close(); }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        Rectangle {
+            vertical-stretch: 1;
+            // A Tab stop, so the keyboard can pick any device found, not only the first (the
+            // printer list's pattern, X15A11Y-2).
+            fs := FocusScope {
+                accessible-role: AccessibleRole.list;
+                accessible-label: "Devices found";
+                focus-on-tab-navigation: !root.inert && root.found.length > 0;
+                key-pressed(e) => {
+                    let i = root.key(e.text);
+                    if (i < 0) {
+                        return reject;
+                    }
+                    let top = i * 66px;
+                    if (top < -list.content-y) {
+                        list.content-y = -top;
+                    } else if (top + 66px > -list.content-y + list.visible-height) {
+                        list.content-y = -(top + 66px - list.visible-height);
+                    }
+                    accept
+                }
+                list := ListView {
+                    for f in root.found: FoundLine {
+                        f: f;
+                        clicked => {
+                            fs.focus();
+                            root.clicked(f.id);
+                        }
+                    }
+                }
+            }
+            if root.found.length == 0: Text {
+                x: 24px;
+                width: parent.width - 48px;
+                text: root.finding ? "Listening for printers that announce themselves, and knocking on ports 9100, 631 and 515…" : "Nothing answered as a printer.";
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: Type.small;
+                color: Theme.ink-3;
+                wrap: word-wrap;
+            }
+        }
+        if root.actions.length > 0 || root.note != "": Rectangle {
+            min-height: bottom.preferred-height;
+            Rectangle { y: 0; height: 1px; background: Theme.line; }
+            bottom := VerticalLayout {
+                padding-left: 18px;
+                padding-right: 18px;
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 8px;
+                if root.note != "": Text {
+                    text: root.note;
+                    font-size: Type.small;
+                    color: Theme.ink;
+                    wrap: word-wrap;
+                    min-height: self.preferred-height;
+                }
+                if root.actions.length > 0: HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    for b in root.actions: Button {
+                        text: b.text;
+                        icon: b.admin ? AppIcons.shield : Icons.external;
+                        kind: b.primary ? ButtonKind.primary : ButtonKind.secondary;
+                        enabled: b.enabled;
+                        inert: root.inert;
+                        clicked => { root.action(b.id); }
+                    }
+                }
+            }
+        }
+    }
+}

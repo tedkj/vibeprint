@@ -1,0 +1,278 @@
+// VibePrint's dialogs: the confirm before a fix (what it will do), Add by IP, and the Journal.
+// They draw; Rust decides.
+
+import { ListView } from "std-widgets.slint";
+import { Theme, Type, Icons, Icon, Button, ButtonKind, Dialog, Field, Select } from "@vibeware";
+import { AppIcons } from "app-icons.slint";
+import { ConfirmInfo, AddInfo, JournalRow } from "types.slint";
+import { StateDot } from "printers.slint";
+
+export component ConfirmDialog {
+    in property <ConfirmInfo> c;
+    callback confirmed();
+    callback cancelled();
+    Dialog {
+        width: root.width;
+        height: root.height;
+        title: root.c.title;
+        dialog-width: 520px;
+        // Enter does not run a fix: a click on its button does.
+        enter-accepts: false;
+        cancelled => { root.cancelled(); }
+        for step[i] in root.c.steps: HorizontalLayout {
+            spacing: 8px;
+            Text {
+                text: (i + 1) + ".";
+                font-family: Type.mono;
+                font-size: Type.small;
+                color: Theme.ink-3;
+                vertical-alignment: top;
+            }
+            Text {
+                text: step;
+                font-size: Type.small;
+                color: Theme.ink;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                min-height: self.preferred-height;
+            }
+        }
+        if root.c.note != "": Text {
+            text: root.c.note;
+            font-size: Type.small;
+            color: Theme.ink-3;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        if root.c.admin: HorizontalLayout {
+            spacing: 8px;
+            VerticalLayout {
+                alignment: start;
+                padding-top: 1px;
+                Icon { path: AppIcons.shield; tint: Theme.accent; }
+            }
+            Text {
+                // The signed-in user must be the administrator (it was About's admin note): the
+                // helper reports to this user only, so another account's password can't run it.
+                text: "Needs administrator rights: Windows asks once. Saying no changes nothing. Run VibePrint in an administrator's session: another account's password at the prompt won't work.";
+                font-size: Type.small;
+                color: Theme.ink-2;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+                min-height: self.preferred-height;
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; kind: ButtonKind.secondary; clicked => { root.cancelled(); } }
+            Button { text: root.c.button; icon: root.c.admin ? AppIcons.shield : ""; kind: ButtonKind.primary; clicked => { root.confirmed(); } }
+        }
+    }
+}
+
+export component AddDialog {
+    in-out property <string> ip;
+    in-out property <string> name;
+    in property <AddInfo> a;
+    callback ip-edited(string);
+    callback name-edited(string);
+    callback ip-escaped() -> bool;
+    callback name-escaped() -> bool;
+    callback driver-changed(int);
+    callback settings();
+    callback confirmed();
+    callback cancelled();
+    Dialog {
+        width: root.width;
+        height: root.height;
+        title: "Add a printer by its IP address";
+        dialog-width: 520px;
+        cancelled => { root.cancelled(); }
+        accepted => {
+            if (root.a.ready) {
+                root.confirmed();
+            }
+        }
+        Field {
+            label: "IPv4 address";
+            placeholder: "192.168.1.50";
+            mono: true;
+            text <=> root.ip;
+            edited(t) => { root.ip-edited(t); }
+            escaped => { root.ip-escaped() }
+        }
+        if root.a.check != "": Text {
+            text: root.a.check;
+            font-size: Type.small;
+            color: Theme.ink-2;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        Field {
+            label: "Name";
+            text <=> root.name;
+            edited(t) => { root.name-edited(t); }
+            escaped => { root.name-escaped() }
+        }
+        Text { text: "Driver"; font-size: Type.small; color: Theme.ink-3; }
+        Select {
+            label: "Driver";
+            options: root.a.drivers;
+            selected: root.a.driver;
+            placeholder: "Choose an installed driver";
+            empty-text: "Reading the installed drivers…";
+            controlled: true;
+            changed(i) => { root.driver-changed(i); }
+        }
+        if root.a.no-driver: HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: "No driver for this printer is installed: Windows' Add printer can fetch one.";
+                font-size: Type.small;
+                color: Theme.warn-text;
+                wrap: word-wrap;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                min-width: 0px;
+                min-height: self.preferred-height;
+            }
+            VerticalLayout {
+                alignment: center;
+                Button { text: "Open Settings"; icon: Icons.external; kind: ButtonKind.secondary; clicked => { root.settings(); } }
+            }
+        }
+        if root.a.protocol != "": Text {
+            text: "Port: " + root.a.protocol;
+            font-family: Type.mono;
+            font-size: Type.small;
+            color: Theme.ink-2;
+        }
+        if root.a.problem != "" && !root.a.no-driver: Text {
+            text: root.a.problem;
+            font-size: Type.small;
+            color: Theme.warn-text;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Cancel"; kind: ButtonKind.secondary; clicked => { root.cancelled(); } }
+            Button { text: root.a.busy ? "Adding…" : "Add…"; icon: AppIcons.shield; kind: ButtonKind.primary; enabled: root.a.ready; clicked => { root.confirmed(); } }
+        }
+    }
+}
+
+component JournalLine inherits Rectangle {
+    in property <JournalRow> r;
+    callback clicked();
+    height: 44px;
+    accessible-role: list-item;
+    accessible-label: root.r.what;
+    accessible-description: root.r.a11y;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.r.selected;
+    accessible-action-default => { root.clicked(); }
+    background: root.r.selected ? Theme.accent-soft : ta.has-hover ? Theme.surface-2 : transparent;
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: center;
+            StateDot { state: root.r.state-code; size: 7px; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 2px;
+            Text {
+                text: root.r.what;
+                font-size: Type.small;
+                color: Theme.ink;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+            Text {
+                text: root.r.when + " · " + root.r.printer + " · " + root.r.state;
+                font-family: Type.mono;
+                font-size: Type.small;
+                color: Theme.ink-3;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+        }
+    }
+}
+
+export component JournalDialog {
+    in property <[JournalRow]> rows;
+    in property <string> note;
+    in property <bool> can-undo;
+    callback clicked(int);
+    callback undo();
+    callback closed();
+    // Up/Down/Home/End on the entries (X15A11Y-2): the row Rust picked, or -1 for another key.
+    callback key(string) -> int;
+    Dialog {
+        width: root.width;
+        height: root.height;
+        title: "Journal: the fixes made on this PC";
+        dialog-width: 600px;
+        enter-accepts: false;
+        cancelled => { root.closed(); }
+        Rectangle {
+            height: 280px;
+            border-width: 1px;
+            border-color: Theme.line;
+            // A Tab stop, so the keyboard can pick an older entry to undo (X15A11Y-2); Escape
+            // goes on to the dialog.
+            fs := FocusScope {
+                accessible-role: AccessibleRole.list;
+                accessible-label: "Fixes";
+                focus-on-tab-navigation: root.rows.length > 0;
+                key-pressed(e) => {
+                    let i = root.key(e.text);
+                    if (i < 0) {
+                        return reject;
+                    }
+                    let top = i * 44px;
+                    if (top < -list.content-y) {
+                        list.content-y = -top;
+                    } else if (top + 44px > -list.content-y + list.visible-height) {
+                        list.content-y = -(top + 44px - list.visible-height);
+                    }
+                    accept
+                }
+                list := ListView {
+                    for r in root.rows: JournalLine {
+                        r: r;
+                        clicked => {
+                            fs.focus();
+                            root.clicked(r.id);
+                        }
+                    }
+                }
+            }
+        }
+        if root.note != "": Text {
+            text: root.note;
+            font-size: Type.small;
+            color: Theme.ink-2;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Button { text: "Undo…"; icon: AppIcons.shield; kind: ButtonKind.secondary; enabled: root.can-undo; clicked => { root.undo(); } }
+            Button { text: "Close"; kind: ButtonKind.primary; clicked => { root.closed(); } }
+        }
+    }
+}

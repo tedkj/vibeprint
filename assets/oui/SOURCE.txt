@@ -1,0 +1,6 @@
+IEEE Registration Authority, public listings, downloaded 2026-10-19:
+  oui.csv    MA-L (24-bit)  https://standards-oui.ieee.org/oui/oui.csv
+  mam.csv    MA-M (28-bit)  https://standards-oui.ieee.org/oui28/mam.csv
+  oui36.csv  MA-S (36-bit)  https://standards-oui.ieee.org/oui36/oui36.csv
+build.rs turns them into the compact table src/oui.rs reads (Registry, Assignment and
+Organization Name only; the addresses are not bundled). Refresh: download the three again.

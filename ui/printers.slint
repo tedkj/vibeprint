@@ -1,0 +1,228 @@
+// The printer list: group titles and printer rows (a state dot, the name, the default mark, the
+// port's kind and address, the real-status line). One accessibility node per row
+// (VIBEWARE.md): the texts inside are not nodes.
+
+import { ListView } from "std-widgets.slint";
+import { Theme, Type } from "@vibeware";
+import { PrinterRow } from "types.slint";
+
+// The state's colour: ok green, warning amber, broken red; checking accent; the rest quiet.
+export global States {
+    public pure function color(s: int) -> color {
+        return s == 1 ? Theme.ok : s == 3 ? Theme.warn : s == 4 ? Theme.danger : s == 0 ? Theme.accent : s == 5 ? Theme.ink-2 : Theme.ink-3;
+    }
+    // Filled for an answer that is good or bad; hollow for checking, quiet and unknown.
+    public pure function filled(s: int) -> bool {
+        return s == 1 || s == 3 || s == 4;
+    }
+}
+
+// The state dot: an octagon (VibeWare draws no circles).
+export component StateDot inherits Rectangle {
+    in property <int> state;
+    in property <length> size: 8px;
+    width: root.size;
+    height: root.size;
+    accessible-role: none;
+    Path {
+        width: 100%;
+        height: 100%;
+        viewbox-x: 0.5;
+        viewbox-y: 0.5;
+        viewbox-width: 7;
+        viewbox-height: 7;
+        commands: "M 2.5 0.5 L 5.5 0.5 L 7.5 2.5 L 7.5 5.5 L 5.5 7.5 L 2.5 7.5 L 0.5 5.5 L 0.5 2.5 Z";
+        fill: States.filled(root.state) ? States.color(root.state) : transparent;
+        stroke: States.color(root.state);
+        stroke-width: 1px;
+    }
+}
+
+export global Rows {
+    out property <length> header: 30px;
+    out property <length> printer: 52px;
+}
+
+component GroupTitle inherits Rectangle {
+    in property <PrinterRow> r;
+    height: Rows.header;
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.r.name;
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-top: 8px;
+        spacing: 10px;
+        Text {
+            text: root.r.name;
+            font-family: Type.mono;
+            font-size: Type.small;
+            color: Theme.ink-3;
+            vertical-alignment: center;
+            accessible-role: none;
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Rectangle {
+                height: 1px;
+                background: Theme.line;
+            }
+        }
+    }
+}
+
+component PrinterLine inherits Rectangle {
+    in property <PrinterRow> r;
+    callback clicked();
+    height: Rows.printer;
+    accessible-role: list-item;
+    accessible-label: root.r.name;
+    accessible-description: root.r.a11y;
+    accessible-item-selectable: true;
+    accessible-item-selected: root.r.selected;
+    accessible-action-default => { root.clicked(); }
+
+    background: root.r.selected ? Theme.accent-soft : ta.has-hover ? Theme.surface-2 : transparent;
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    if root.r.selected: Rectangle {
+        x: 0;
+        width: 2px;
+        background: Theme.accent;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 12px;
+        VerticalLayout {
+            alignment: center;
+            StateDot { state: root.r.state; }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: root.r.name;
+                    font-size: Type.body;
+                    font-weight: Type.strong;
+                    color: Theme.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    accessible-role: none;
+                }
+                if root.r.tag != "": Text {
+                    text: root.r.tag;
+                    font-family: Type.mono;
+                    font-size: Type.small;
+                    color: Theme.accent;
+                    vertical-alignment: center;
+                    accessible-role: none;
+                }
+                Text {
+                    text: root.r.port;
+                    font-family: Type.mono;
+                    font-size: Type.small;
+                    color: Theme.ink-3;
+                    vertical-alignment: center;
+                    horizontal-alignment: right;
+                    overflow: elide;
+                    min-width: 0px;
+                    max-width: 220px;
+                    accessible-role: none;
+                }
+            }
+            Text {
+                text: root.r.line;
+                font-size: Type.small;
+                color: root.r.state == 3 ? Theme.warn-text : root.r.state == 4 ? Theme.danger-text : Theme.ink-2;
+                vertical-alignment: center;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+        }
+    }
+}
+
+export component PrinterList inherits Rectangle {
+    in property <[PrinterRow]> rows;
+    in property <string> empty-text;
+    in property <bool> inert;
+    // The row to bring into view: its top (Rust adds the rows' heights above it; -1px for
+    // none), and a seq Rust bumps each time it should be (keys).
+    in property <length> scroll-top: -1px;
+    in property <int> scroll-seq;
+    callback row-clicked(int);
+    callback key(string, bool, bool) -> bool;
+
+    public function focus-list() {
+        fs.focus();
+    }
+
+    // Deferred: the list lays the rows out first; twice, as one pass was measured not enough
+    // for End (VIBEWARE.md).
+    changed scroll-seq => {
+        later.passes = 2;
+        later.running = true;
+    }
+    later := Timer {
+        property <int> passes;
+        interval: 1ms;
+        running: false;
+        triggered => {
+            self.passes -= 1;
+            if (self.passes <= 0) {
+                self.running = false;
+            }
+            if (root.scroll-top >= 0px) {
+                let top = root.scroll-top;
+                if (top < -list.content-y) {
+                    list.content-y = -top;
+                } else if (top + Rows.printer > -list.content-y + list.visible-height) {
+                    list.content-y = -(top + Rows.printer - list.visible-height);
+                }
+            }
+        }
+    }
+
+    fs := FocusScope {
+        accessible-role: AccessibleRole.list;
+        accessible-label: "Printers";
+        focus-on-tab-navigation: !root.inert;
+        key-pressed(e) => {
+            if (root.key(e.text, e.modifiers.control, e.modifiers.shift)) {
+                return accept;
+            }
+            reject
+        }
+        list := ListView {
+            for r in root.rows: Rectangle {
+                height: r.header ? Rows.header : Rows.printer;
+                if r.header: GroupTitle { r: r; }
+                if !r.header: PrinterLine {
+                    r: r;
+                    clicked => {
+                        fs.focus();
+                        root.row-clicked(r.id);
+                    }
+                }
+            }
+        }
+    }
+    if root.rows.length == 0 && root.empty-text != "": Text {
+        x: 24px;
+        width: parent.width - 48px;
+        text: root.empty-text;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: Type.small;
+        color: Theme.ink-3;
+        wrap: word-wrap;
+    }
+}

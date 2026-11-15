@@ -1,0 +1,216 @@
+// The detail panel for the selected printer: its real status, the fixes that apply, then by
+// section what Windows says, what the printer itself says, the port, the driver and the queue.
+// Long values wrap; one accessibility node per field and per job.
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme, Type, Button, ButtonKind } from "@vibeware";
+import { DetailInfo, DetailPair, JobRow, FixButton } from "types.slint";
+import { States, StateDot } from "printers.slint";
+import { AppIcons } from "app-icons.slint";
+
+export component SectionRow inherits HorizontalLayout {
+    in property <string> text;
+    padding-top: 10px;
+    padding-bottom: 4px;
+    spacing: 10px;
+    Text {
+        text: root.text;
+        font-family: Type.mono;
+        font-size: Type.small;
+        color: Theme.ink-3;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+    VerticalLayout {
+        alignment: center;
+        horizontal-stretch: 1;
+        Rectangle {
+            height: 1px;
+            background: Theme.line;
+        }
+    }
+}
+
+component FieldRow inherits Rectangle {
+    in property <DetailPair> p;
+    accessible-role: list-item;
+    accessible-label: p.key;
+    accessible-description: p.value;
+    min-height: lay.preferred-height;
+    lay := HorizontalLayout {
+        padding-top: root.p.section ? 0px : 2px;
+        padding-bottom: root.p.section ? 0px : 2px;
+        spacing: 12px;
+        if root.p.section: SectionRow { text: root.p.key; }
+        if !root.p.section: Text {
+            width: 130px;
+            text: root.p.key;
+            font-size: Type.small;
+            color: Theme.ink-3;
+            wrap: word-wrap;
+            min-height: self.preferred-height;
+            accessible-role: none;
+        }
+        if !root.p.section: Text {
+            text: root.p.value;
+            font-family: root.p.mono ? Type.mono : Type.ui;
+            font-size: Type.small;
+            color: Theme.ink-2;
+            wrap: word-wrap;
+            horizontal-stretch: 1;
+            min-width: 0px;
+            min-height: self.preferred-height;
+            accessible-role: none;
+        }
+    }
+}
+
+component JobLine inherits Rectangle {
+    in property <JobRow> j;
+    accessible-role: list-item;
+    accessible-label: root.j.document;
+    accessible-description: root.j.a11y;
+    min-height: lay.preferred-height;
+    lay := HorizontalLayout {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 4px;
+            StateDot { state: root.j.state; size: 7px; }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 10px;
+                Text {
+                    text: root.j.document;
+                    font-size: Type.small;
+                    font-weight: Type.strong;
+                    color: Theme.ink;
+                    overflow: elide;
+                    min-width: 0px;
+                    horizontal-stretch: 1;
+                    accessible-role: none;
+                }
+                Text {
+                    text: root.j.status;
+                    font-size: Type.small;
+                    color: root.j.state == 4 ? Theme.danger-text : Theme.ink-2;
+                    overflow: elide;
+                    min-width: 0px;
+                    max-width: 220px;
+                    accessible-role: none;
+                }
+            }
+            Text {
+                text: root.j.detail;
+                font-family: Type.mono;
+                font-size: Type.small;
+                color: Theme.ink-3;
+                overflow: elide;
+                min-width: 0px;
+                accessible-role: none;
+            }
+        }
+    }
+}
+
+component FixRow inherits HorizontalLayout {
+    in property <[FixButton]> buttons;
+    in property <bool> inert;
+    callback clicked(int);
+    alignment: start;
+    spacing: 8px;
+    for b in root.buttons: Button {
+        text: b.text;
+        icon: b.admin ? AppIcons.shield : "";
+        kind: b.primary ? ButtonKind.primary : ButtonKind.secondary;
+        tooltip: b.admin ? "One administrator prompt" : "";
+        enabled: b.enabled;
+        inert: root.inert;
+        clicked => { root.clicked(b.id); }
+    }
+}
+
+export component DetailPanel inherits Rectangle {
+    in property <DetailInfo> d;
+    in property <[DetailPair]> pairs;
+    in property <[JobRow]> jobs;
+    in property <[FixButton]> fixes-a;
+    in property <[FixButton]> fixes-b;
+    in property <bool> inert;
+    callback fix(int);
+
+    // No background: the window's own (Theme.surface) is under it (one fill per region).
+    accessible-role: groupbox;
+    accessible-label: "Details";
+
+    if root.d.title != "": sv := ScrollView {
+        content-width: self.visible-width;
+        content-height: content.preferred-height;
+        content := VerticalLayout {
+            width: sv.visible-width;
+            padding-left: 18px;
+            padding-right: 18px;
+            padding-top: 14px;
+            padding-bottom: 14px;
+            spacing: 6px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: start;
+                VerticalLayout {
+                    alignment: center;
+                    StateDot { state: root.d.state; size: 10px; }
+                }
+                Text {
+                    text: root.d.title;
+                    font-size: Type.body;
+                    font-weight: Type.strong;
+                    color: Theme.ink;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    min-width: 0px;
+                }
+                Text {
+                    text: root.d.state-word;
+                    font-family: Type.mono;
+                    font-size: Type.small;
+                    color: Theme.as-text(States.color(root.d.state));
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: root.d.line;
+                font-size: Type.body;
+                color: root.d.state == 4 ? Theme.danger-text : Theme.ink;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+            if root.fixes-a.length > 0: FixRow {
+                padding-top: 4px;
+                buttons: root.fixes-a;
+                inert: root.inert;
+                clicked(i) => { root.fix(i); }
+            }
+            if root.fixes-b.length > 0: FixRow {
+                buttons: root.fixes-b;
+                inert: root.inert;
+                clicked(i) => { root.fix(i); }
+            }
+            for p in root.pairs: FieldRow { p: p; }
+            SectionRow { text: root.d.queue-title; }
+            for j in root.jobs: JobLine { j: j; }
+            for n in root.d.notes: Text {
+                text: n;
+                font-size: Type.small;
+                color: Theme.ink-2;
+                wrap: word-wrap;
+                min-height: self.preferred-height;
+            }
+        }
+    }
+}
